@@ -234,6 +234,8 @@ func Routes(students []domain.Student, trips []domain.Travel, repository databas
 			return
 		}
 
+		fmt.Println("Route Id: ", routeID)
+
 		for i, student := range selectStudents {
 			repository.InsertNode(db.InsertNodeParams{
 				Name:      student.Name,
