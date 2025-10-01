@@ -1,0 +1,9 @@
+#Files
+*.env
+/osrm-data/*
+/pgisdata/*
+
+
+# exec
+*.exe
+

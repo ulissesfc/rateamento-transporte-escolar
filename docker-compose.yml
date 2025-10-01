@@ -1,0 +1,46 @@
+services:
+
+  glpk:
+    build:
+      context: .
+      dockerfile: Dockerfile.glpk
+    container_name: glpk
+    volumes:
+      - ./ILP-Solver:/app
+    working_dir: /app
+  
+  postgis:
+    image: postgis/postgis:latest
+    container_name: db-postgis-tr
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: transport_routing
+    ports:
+      - "5436:5432"
+    volumes:
+      - ./pgisdata:/var/lib/postgresql/data
+
+  osrm-prepare:
+    image: osrm/osrm-backend:latest
+    container_name: osrm-prepare
+    command: >
+      sh -c "osrm-extract -p /opt/car.lua /data/sul-latest.osm.pbf &&
+             osrm-partition /data/sul-latest.osrm &&
+             osrm-customize /data/sul-latest.osrm"
+    volumes:
+      - ./osrm-data:/data
+
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: osrm
+    restart: always
+    command: >
+       osrm-routed /data/sul-latest.osrm --algorithm mld --max-table-size 15000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./osrm-data:/data
+    depends_on:
+      - osrm-prepare

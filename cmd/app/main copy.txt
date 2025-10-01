@@ -1,0 +1,163 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+)
+
+type Bus struct {
+	Type     int
+	Quantity int
+	Capacity int
+}
+
+func main() {
+	// Dados dos ônibus
+	buses := []Bus{
+		{Type: 1, Quantity: 3, Capacity: 32},
+		{Type: 2, Quantity: 1, Capacity: 33},
+		{Type: 3, Quantity: 2, Capacity: 41},
+		{Type: 4, Quantity: 6, Capacity: 43},
+		{Type: 5, Quantity: 2, Capacity: 44},
+		{Type: 6, Quantity: 1, Capacity: 45},
+		{Type: 7, Quantity: 1, Capacity: 47},
+		{Type: 8, Quantity: 8, Capacity: 49},
+		{Type: 9, Quantity: 2, Capacity: 50},
+		{Type: 10, Quantity: 1, Capacity: 56},
+		{Type: 11, Quantity: 1, Capacity: 58},
+		{Type: 12, Quantity: 1, Capacity: 60},
+	}
+
+	totalDemand := 692
+	slack := 4
+
+	modFile := "ILP-Solver/problem.mod"
+	solFile := "ILP-Solver/solution.txt"
+
+	if err := writeModFile(modFile, buses, totalDemand, slack); err != nil {
+		fmt.Println("Erro ao gerar arquivo .mod:", err)
+		return
+	}
+
+	if err := runGLPK(); err != nil {
+		fmt.Println("Erro ao executar GLPK:", err)
+		return
+	}
+
+	result, totalBuses, err := parseSolution(solFile, buses)
+	if err != nil {
+		fmt.Println("Erro ao ler solução:", err)
+		return
+	}
+
+	fmt.Println("--- Resultado da Otimização PPLI ---")
+	fmt.Printf("Número total de ônibus otimizado: %.0f\n", totalBuses)
+	fmt.Println("Quantidade por tipo de ônibus:")
+	for _, bus := range buses {
+		qty := result[bus.Type]
+		if qty > 0 {
+			fmt.Printf("  - Tipo %d (Cap: %d): Usar %.0f de %d disponíveis\n",
+				bus.Type, bus.Capacity, qty, bus.Quantity)
+		}
+	}
+}
+
+// writeModFile gera um arquivo MathProg (.mod) válido
+func writeModFile(filename string, buses []Bus, totalDemand, slack int) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+
+	// Declaração de variáveis inteiras
+	for _, bus := range buses {
+		lower := 0
+		if bus.Type == 1 {
+			lower = 2 // restrição específica do tipo 1
+		}
+		fmt.Fprintf(w, "var x%d >= %d, <= %d, integer;\n", bus.Type, lower, bus.Quantity)
+	}
+
+	// Função objetivo: minimizar soma de ônibus
+	fmt.Fprint(w, "minimize obj: ")
+	for i, bus := range buses {
+		if i > 0 {
+			fmt.Fprint(w, " + ")
+		}
+		fmt.Fprintf(w, "x%d", bus.Type)
+	}
+	fmt.Fprintln(w, ";")
+
+	// Restrição de demanda com folga
+	fmt.Fprint(w, "s.t. demand: ")
+	for i, bus := range buses {
+		if i > 0 {
+			fmt.Fprint(w, " + ")
+		}
+		fmt.Fprintf(w, "%d*x%d", bus.Capacity-slack, bus.Type)
+	}
+	fmt.Fprintf(w, " >= %d;\n", totalDemand)
+
+	// Resolver e exibir variáveis
+	fmt.Fprintln(w, "solve;")
+	for _, bus := range buses {
+		fmt.Fprintf(w, "display x%d;\n", bus.Type)
+	}
+	fmt.Fprintln(w, "end;")
+
+	return w.Flush()
+}
+
+// runGLPK executa o solver GLPK via CLI
+func runGLPK() error {
+	cmd := exec.Command("docker", "exec", "glpk", "glpsol", "-m", "/app/problem.mod", "-o", "/app/solution.txt")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Println(string(output))
+		return err
+	}
+	return nil
+}
+
+// parseSolution lê o arquivo de saída e retorna os resultados
+func parseSolution(solFile string, buses []Bus) (map[int]float64, float64, error) {
+	f, err := os.Open(solFile)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+
+	result := make(map[int]float64)
+	total := 0.0
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		for _, bus := range buses {
+			// Procura linhas que começam com o nome da variável
+			if strings.Contains(line, fmt.Sprintf("x%d", bus.Type)) {
+				fields := strings.Fields(line)
+				if len(fields) >= 4 {
+					val, err := strconv.ParseFloat(fields[3], 64) // Activity é a 4ª coluna
+					if err == nil {
+						result[bus.Type] = val
+						total += val
+					}
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return result, total, nil
+}

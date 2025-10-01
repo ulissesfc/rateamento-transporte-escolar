@@ -1,0 +1,3 @@
+Como Baixar e Atualizar o Mapa para o OSRM:
+    Para obter ou atualizar o mapa utilizado pelo OSRM, antes de rodar o serviço osrm-prepare do docker-compose. Faça o download do arquivo .pbf no site geofabrik.de e salve-o com o nome "sul-latest.osm.pbf" no diretório "/osrm-data"
+    Ou, alternativamente, execute o seguinte comando no terminal: wget https://download.geofabrik.de/south-america/brazil/sul-latest.osm.pbf -O osrm-data/sul-latest.osm.pbf
